@@ -3,11 +3,12 @@ from abc import ABC, abstractmethod
 
 
 class ReplayBuffer(ABC):
-    # TODO
     def __init__(self, capacity, alpha=0.6, beta=0.4, gamma=0.99):
 
+        self.capacity = capacity
+
         # capacity is always 2 ** integer
-        self.capacity = int(2 ** np.ceil(np.log2(capacity)))
+        self._num_leafnodes = int(2 ** np.ceil(np.log2(capacity)))
 
         # data storage
         self.datas = {}
@@ -17,7 +18,7 @@ class ReplayBuffer(ABC):
         self._item_inverse = {}
 
         # tree index
-        self.tree_length = 2 * self.capacity - 1
+        self.tree_length = 2 * self._num_leafnodes - 1
 
         # data pointers
         self._data_pointer = 0
@@ -36,11 +37,12 @@ class ReplayBuffer(ABC):
             tree_index = 0
             leaf = self.explore(p_index, tree_index)
             if leaf not in explored:
-                explored.append(leaf - (self.capacity - 1))
+                # append item_id if leaf node is not sampled yet
+                explored.append(leaf - (self._num_leafnodes - 1))
         return [self.items[val] for val in explored]
 
     def _explore(self, p_index, tree_index):
-        if tree_index >= self.capacity - 1:
+        if tree_index >= self._num_leafnodes - 1:
             return tree_index
         left = tree_index * 2 + 1
         right = tree_index * 2 + 2
