@@ -1,18 +1,20 @@
 import numpy as np
+from dol.core import Item
 from abc import ABC, abstractmethod
 
 
 class ReplayBuffer(ABC):
-    def __init__(self, capacity, alpha=0.6, beta=0.4, gamma=0.99):
+    def __init__(self, capacity: int = 20000, alpha=0.6, beta=0.4, minimum_sample_size: int = 100):
 
         self.capacity = capacity
+        self._minimum_sample_size = minimum_sample_size
 
         # capacity is always 2 ** integer
         self._num_leafnodes = int(2 ** np.ceil(np.log2(capacity)))
 
         # data storage
         self.datas = {}
-        self.items = [None] * self.capacity
+        self.items = []
 
         # hash which maps data_id to list of item_id which includes data_id
         self._item_inverse = {}
@@ -28,18 +30,27 @@ class ReplayBuffer(ABC):
         # learning parameters
         self.alpha = alpha
         self.beta = beta
-        self.gamma = gamma
 
     def _sample_item(self, size):
+        """execute importance sampling and returns list of item_ids with length of size
+
+        Args:
+            size (int): length of ids
+
+        Returns:
+            [type]: list of item_ids
+        """
+        if size > len(self):
+            raise ValueError(
+                "Batch size must be equal or smaller than size of items collected")
         explored = []
         while len(explored) < size:
             p_index = np.random.random() * self.tree[0]
             tree_index = 0
-            leaf = self.explore(p_index, tree_index)
-            if leaf not in explored:
-                # append item_id if leaf node is not sampled yet
-                explored.append(leaf - (self._num_leafnodes - 1))
-        return [self.items[val] for val in explored]
+            leaf = self._explore(p_index, tree_index)
+            item_id = leaf - (self._num_leafnodes - 1)
+            explored.append(item_id)
+        return explored
 
     def _explore(self, p_index, tree_index):
         if tree_index >= self._num_leafnodes - 1:
@@ -58,7 +69,10 @@ class ReplayBuffer(ABC):
         self._update_tree(self._item_pointer, item.priority)
 
         # insert item
-        self.items[self._item_pointer] = item
+        if len(self.items) - 1 < self._item_pointer:
+            self.items.append(item)
+        else:
+            self.items[self._item_pointer] = item
 
         # update _item_inverse
         for _id in item.ids:
@@ -85,16 +99,33 @@ class ReplayBuffer(ABC):
         Args:
             outer_buffer (AbstractReplayBuffer): basically local buffer on worker process.
         """
-        raise NotImplementedError
+        outer_datas = outer_buffer.datas
+        outer_items = outer_buffer.items
+
+        # hash table from outer data id to inner data id
+        data_hash = {}
+
+        # copy data
+        for outer_key, data in outer_datas.items():
+            inner_key = self.add_data(data)
+            data_hash[outer_key] = inner_key
+
+        for item in outer_items:
+            new_ids = [data_hash[_id] for _id in item.ids]
+            new_item = Item(new_ids, item.priority)
+            self.add_item(new_item)
 
     def get_max_p(self):
         return self.tree[0]
 
     def clear(self):
         self.datas.clear()
-        self.items = [None] * self.capacity
+        self.items = []
         self._item_inverse()
         self.tree = np.zeros(shape=(self.tree_length,))
+        # data pointers
+        self._data_pointer = 0
+        self._item_pointer = 0
 
     def update_priority(self, ids, priorities):
         # update item
@@ -105,14 +136,35 @@ class ReplayBuffer(ABC):
             self._update_tree(_id, priority)
 
     def _update_tree(self, item_id, new_priority):
-        pointer = self.capacity - 1 + item_id
+        pointer = self._num_leafnodes - 1 + item_id
         difference = new_priority ** self.alpha - self.tree[pointer]
+        self.tree[pointer] += difference
         while pointer > 0:
             pointer = (pointer - 1) // 2
             self.tree[pointer] += difference
 
-    # @abstractmethod
+    def get_is_weight(self, item_ids: np.ndarray) -> np.ndarray:
+        """calculate importance weight from array of item_ids
 
+        Args:
+            item_ids (np.ndarray): array of item_ids with shape (n,)
+
+        Returns:
+            is_weights: importance sampling weight as np.ndarray with the same shape as the item_ids
+        """
+        is_weights = []
+        for item_id in item_ids:
+            is_weights.append((self.items[item_id].priority ** self.alpha) /
+                              (self.tree[0] * len(self)) ** self.beta)
+        is_weights = np.array(is_weights)
+        # normalize
+        is_weights /= np.sum(is_weights)
+        return is_weights
+
+    def __len__(self):
+        return len(self.items)
+
+    @abstractmethod
     def sample(self, size):
         """define algorithm-specific sampling strategy
 
