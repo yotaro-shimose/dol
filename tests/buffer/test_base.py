@@ -1,5 +1,5 @@
-from dol.new_buffer.adder import SequenceAdder
-from dol.new_buffer.base import ReplayBuffer
+from dol.buffer.adder import SequenceAdder
+from dol.buffer.base import ReplayBuffer
 from dol.core import EnvStep
 import numpy as np
 import time
@@ -72,7 +72,7 @@ def test_sumtree_priority():
     capacity = 16
     priorities = np.arange(1, capacity + 1).astype(np.float)
     ids = np.arange(capacity)
-    sumtree = StupidoBuffer(capacity, alpha)
+    sumtree = StupidBuffer(capacity, alpha)
     sampled = np.zeros((capacity,), dtype=np.int)
     for _id, priority in zip(ids, priorities):
         sumtree.add(_id, priority)

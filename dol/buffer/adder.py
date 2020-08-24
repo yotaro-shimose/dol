@@ -1,8 +1,8 @@
-from abc import ABC, abstractmethod
-import numpy as np
-from dol.core import StepData, Item
-from collections import deque
 import copy
+from abc import ABC, abstractmethod
+from collections import deque
+import numpy as np
+from dol.core import Item, StepData
 
 
 class Adder(ABC):

@@ -1,31 +1,105 @@
-from abc import ABC, abstractmethod
+import numpy as np
 from dol.core import Item
-import ray
+from abc import ABC, abstractmethod
 
 
 class ReplayBuffer(ABC):
-    """Abstract Replay Buffer to hold data table and reference table to some datas in data tables.
-    Inherit and implement sampling strategy.
-    """
-    def __init__(self, n_sequence, size=20000, alpha=0.6, beta=0.4, gamma=0.99):
-        self._n_sequence = n_sequence
-        self._size = size
-        self.items = {}
-        self._item_id = 0
+    def __init__(
+        self,
+        capacity: int = 20000,
+        alpha: float = 0.6,
+        beta: float = 0.4,
+        minimum_sample_size: int = 100
+    ):
+
+        self.capacity = capacity
+        self._minimum_sample_size = minimum_sample_size
+
+        # capacity is always 2 ** integer
+        self._num_leafnodes = int(2 ** np.ceil(np.log2(capacity)))
+
+        # data storage
         self.datas = {}
-        self._data_id = 0
-        self._alpha = alpha
-        self._beta = beta
-        self._gamma = gamma
+        self.items = []
 
-    def add_data(self, data) -> int:
-        _id = self._next_data_id()
+        # hash which maps data_id to list of item_id which includes data_id
+        self._item_inverse = {}
+
+        # tree index
+        self.tree_length = 2 * self._num_leafnodes - 1
+
+        # data pointers
+        self._data_pointer = 0
+        self._item_pointer = 0
+        self.tree = np.zeros(shape=(self.tree_length,))
+
+        # learning parameters
+        self.alpha = alpha
+        self.beta = beta
+
+    def _sample_item_ids(self, size):
+        """execute importance sampling and returns list of item_ids with length of size
+
+        Args:
+            size (int): length of ids
+
+        Returns:
+            [type]: list of item_ids
+        """
+        if size > len(self):
+            raise ValueError(
+                "Batch size must be equal or smaller than size of items collected")
+        explored = []
+        while len(explored) < size:
+            p_index = np.random.random() * self.tree[0]
+            tree_index = 0
+            leaf = self._explore(p_index, tree_index)
+            item_id = leaf - (self._num_leafnodes - 1)
+            explored.append(item_id)
+        return explored
+
+    def _all_item_ids(self):
+        return list(range(len(self.items)))
+
+    def _explore(self, p_index, tree_index):
+        if tree_index >= self._num_leafnodes - 1:
+            return tree_index
+        left = tree_index * 2 + 1
+        right = tree_index * 2 + 2
+        # go left
+        if self.tree[left] > p_index:
+            return self._explore(p_index, left)
+        # go right
+        else:
+            return self._explore(p_index - self.tree[left], right)
+
+    def add_item(self, item):
+        # update tree(does not insert item yet)
+        self._update_tree(self._item_pointer, item.priority)
+
+        # insert item
+        if len(self.items) - 1 < self._item_pointer:
+            self.items.append(item)
+        else:
+            self.items[self._item_pointer] = item
+
+        # update _item_inverse
+        for _id in item.ids:
+            self._item_inverse.setdefault(_id, []).append(self._item_pointer)
+        self._item_pointer = (self._item_pointer + 1) % self.capacity
+
+    def _delete_reference(self, item_id):
+        for _id in self.items[item_id].ids:
+            self._item_inverse[_id].remove(item_id)
+            if len(self._item_inverse[_id]) == 0:
+                self.datas.pop(_id)
+                del self._item_inverse[_id]
+
+    def add_data(self, data):
+        _id = self._data_pointer
         self.datas[_id] = data
+        self._data_pointer += 1
         return _id
-
-    def add_item(self, item: Item):
-        _id = self._next_item_id()
-        self.items[_id] = item
 
     def upload(self, outer_buffer):
         """Recommended interface to add experiences from local(outer) buffer to this buffer.
@@ -34,77 +108,96 @@ class ReplayBuffer(ABC):
         Args:
             outer_buffer (AbstractReplayBuffer): basically local buffer on worker process.
         """
-        id_hash = {}
-        for outer_id, data in outer_buffer.datas.items():
-            inner_id = self.add_data(data)
-            id_hash[outer_id] = inner_id
+        outer_datas = outer_buffer.datas
+        outer_items = outer_buffer.items
 
-        # copy items and datas into this buffer
-        for item in outer_buffer.items.values():
-            ids = []
-            for _id in item.ids:
-                ids.append(id_hash[_id])
-            new_item = Item(ids, item.priority)
+        # hash table from outer data id to inner data id
+        data_hash = {}
+
+        # copy data
+        for outer_key, data in outer_datas.items():
+            inner_key = self.add_data(data)
+            data_hash[outer_key] = inner_key
+
+        for item in outer_items:
+            new_ids = [data_hash[_id] for _id in item.ids]
+            new_item = Item(new_ids, item.priority)
             self.add_item(new_item)
 
+    def get_max_p(self):
+        return self.tree[0]
+
     def clear(self):
-        self.items = {}
-        self.datas = {}
-
-    def _next_data_id(self) -> int:
-        _id = self._data_id
-        self._data_id += 1
-        return _id
-
-    def _next_item_id(self) -> int:
-        _id = self._item_id
-        self._item_id += 1
-        return _id
-
-    def _delete_item(self, item_id):
-        if not item_id:
-            item = next(iter(self.items))
-        else:
-            item = self.items[item_id]
-        for _id in item.ids:
-            exist = False
-            for item in self.items[1:]:
-                if _id in item.ids:
-                    exist = True
-            if not exist:
-                del self.datas[_id]
-
-    @abstractmethod
-    def sample(self, size: int):
-        """define algorithm-specific sampling strategy
-
-        Args:
-            size (int): size of items.
-
-        Returns:
-            Dataset: dataset object
-        """
-        raise NotImplementedError
-
-    def get_max_p(self) -> float:
-        max_p = max([item.priority for item in self.items.values()])
-        return max_p
+        self.datas.clear()
+        self.items = []
+        self._item_inverse()
+        self.tree = np.zeros(shape=(self.tree_length,))
+        # data pointers
+        self._data_pointer = 0
+        self._item_pointer = 0
 
     def update_priority(self, ids, priorities):
+        # update item
         for _id, priority in zip(ids, priorities):
             self.items[_id].priority = priority
 
+            # update sum tree
+            self._update_tree(_id, priority)
 
-class RemoteBuffer(object):
-    def __init__(self, buffer_cls):
-        self.buffer = ray.remote(buffer_cls).remote()
+    def _update_tree(self, item_id, new_priority):
+        pointer = self._num_leafnodes - 1 + item_id
+        difference = new_priority ** self.alpha - self.tree[pointer]
+        self.tree[pointer] += difference
+        while pointer > 0:
+            pointer = (pointer - 1) // 2
+            self.tree[pointer] += difference
 
-    def upload(self, outer_buffer):
-        self.buffer.upload.remote(outer_buffer)
+    def get_is_weight(self, item_ids: np.ndarray) -> np.ndarray:
+        """calculate importance weight from array of item_ids
+
+        Args:
+            item_ids (np.ndarray): array of item_ids with shape (n,)
+
+        Returns:
+            is_weights: importance sampling weight as np.ndarray with the same shape as the item_ids
+        """
+        is_weights = []
+        for item_id in item_ids:
+            is_weights.append((self.items[item_id].priority ** self.alpha) /
+                              (self.tree[0] * len(self)) ** self.beta)
+        is_weights = np.array(is_weights)
+        # normalize
+        is_weights /= np.sum(is_weights)
+        return is_weights.reshape((1,) + is_weights.shape)
+
+    def __len__(self):
+        return len(self.items)
 
     def sample(self, size):
-        future = self.buffer.sample.remote(size)
-        return ray.get(future)
+        """sample ids and create sample object by calling _create_sample() method.
 
-    def update_priority(self, ids, priorities):
-        self.buffer.update_priority.remote(ids, priorities)
+        Args:
+            List (int): list of item_ids
+        """
+        if size > len(self) or size < self._minimum_sample_size:
+            return
+        ids = self._sample_item_ids(size)
+        sample = self._create_sample(ids)
+        return sample
+
+    def sample_all(self):
+        ids = self._all_item_ids()
+        sample = self._create_sample(ids)
+        return sample
+
+    @abstractmethod
+    def _create_sample(self, ids):
+        """Create algorithm-specific data construction strategy
+
+        Args:
+            size (List[int]): list of item_ids
+
+        Returns:
+            sample: Sample object
+        """
+        raise NotImplementedError
