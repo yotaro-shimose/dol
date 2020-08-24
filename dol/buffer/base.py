@@ -175,9 +175,6 @@ class ReplayBuffer(ABC):
 
     def sample(self, size):
         """sample ids and create sample object by calling _create_sample() method.
-
-        Args:
-            List (int): list of item_ids
         """
         if size > len(self) or size < self._minimum_sample_size:
             return

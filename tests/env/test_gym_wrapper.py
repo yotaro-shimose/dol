@@ -21,7 +21,8 @@ def test_gym_wrapper_tuple_discrete():
     step = env.step(action)
     fields = vars(step)
     assert fields["observation"].shape == (6,)
-    assert fields["reward"] == np.array([0])
+    print(fields["reward"])
+    assert fields["reward"].shape == (1,)
     assert fields["done"] == [False]
 
 
