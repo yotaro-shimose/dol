@@ -2,7 +2,6 @@ from dol.buffer.adder import SequenceAdder
 from dol.buffer.transition import TransitionBuffer
 from dol.core import EnvStep
 import numpy as np
-import time
 
 
 def dummy_step_action():

@@ -45,6 +45,16 @@ class Actor(ABC):
             self.on_episode_end()
 
 
+class Learner(ABC):
+    def run(self):
+        while True:
+            self.learn()
+
+    @abstractmethod
+    def learn(self):
+        raise NotImplementedError
+
+
 ###################
 # Data Structures #
 ###################
