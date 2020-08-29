@@ -20,22 +20,28 @@ class TransitionBatch(Batch):
         self.observation = observation
         self.action = action
         self.reward = reward
+        self.next_observation = next_observation
         self.done = done
         self.is_weight = is_weight
 
 
 class TransitionBuffer(ReplayBuffer):
+
     def __init__(
         self,
         capacity: int = 20000,
-        alpha=0.6,
-        beta=0.4,
-        gamma=0.99,
+        alpha: float = 0.6,
+        beta: float = 0.4,
+        gamma: float = 0.99,
         minimum_sample_size: int = 100
     ):
         self.gamma = gamma
-        super().__init__(capacity=capacity, alpha=alpha,
-                         beta=beta, minimum_sample_size=minimum_sample_size)
+        super().__init__(
+            capacity=capacity,
+            alpha=alpha,
+            beta=beta,
+            minimum_sample_size=minimum_sample_size
+        )
 
     def _create_sample(self, item_ids):
 
@@ -48,11 +54,11 @@ class TransitionBuffer(ReplayBuffer):
             n_step_reward = 0
             # calculate n_step reward
             for i in range(1, len(item.ids)):
-                n_step_reward += self.datas[item.ids[i]
-                                            ].reward * self.gamma ** (i - 1)
+                n_step_reward += self.data[item.ids[i]
+                                           ].reward * self.gamma ** (i - 1)
 
-            first_data = self.datas[item.ids[0]]
-            last_data = self.datas[item.ids[-1]]
+            first_data = self.data[item.ids[0]]
+            last_data = self.data[item.ids[-1]]
             _id.append(item_id)
             observation.append(first_data.observation)
             action.append(first_data.action)
@@ -62,7 +68,6 @@ class TransitionBuffer(ReplayBuffer):
 
         # calculate is_weight
         is_weight = self.get_is_weight(_id)
-
         return TransitionBatch(
             _id,
             stack_to_batch(observation),

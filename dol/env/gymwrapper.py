@@ -63,7 +63,7 @@ class GymWrapper(Env):
             return parse_action
         elif isinstance(action_space, gym.spaces.Discrete):
             def parse_action(action):
-                action = np.argmax(action, 0)
+                action = np.argmax(action)
                 return action
             return parse_action
         elif isinstance(action_space, gym.spaces.Tuple):

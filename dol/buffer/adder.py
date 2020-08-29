@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 import numpy as np
 from dol.core import Item, StepData
+from itertools import islice
 
 
 class Adder(ABC):
@@ -34,6 +35,8 @@ class Adder(ABC):
             return np.zeros(element.shape)
         elif isinstance(element, tuple):
             return tuple(self._get_dummy(ele) for ele in element)
+        elif isinstance(element, bool):
+            return False
         elif isinstance(element, int) or isinstance(element, float):
             return 0
         elif isinstance(element, dict):
@@ -56,7 +59,7 @@ class SequenceAdder(Adder):
     """Insert step and action to LOCAL memory every action step.
     """
 
-    def __init__(self, n_step, buffer):
+    def __init__(self, n_step: int, buffer):
         """create N-Step Sequence Adder which insert a sequence of datas.
         When provided n == 2, this will simply create transitions in local buffer.
 
@@ -78,7 +81,7 @@ class SequenceAdder(Adder):
             extra (dict, optional): extra info. see Data class docstring
         """
         dummy_action = copy.deepcopy(self._padding_data.action)
-        final_data = StepData(step.obs, dummy_action,
+        final_data = StepData(step.observation, dummy_action,
                               step.reward, step.done, extra)
         _id = self._buffer.add_data(final_data)
         self._ids.append(_id)
@@ -98,7 +101,7 @@ class SequenceAdder(Adder):
         self._ids = deque(maxlen=self._n_step)
 
     def add_step(self, step, action, extra: dict = {}):
-        """calling add_step automatically stores informations and create appropriate datas and items
+        """calling add_step automatically stores informations and create appropriate data and items
         to create consecutive sequence.
 
         Args:
@@ -116,3 +119,14 @@ class SequenceAdder(Adder):
         if len(self._ids) == self._n_step:
             item = Item(list(self._ids), 1)
             self._buffer.add_item(item)
+
+    def clear_buffer(self):
+        # keep datas to re-insert
+        datas = [self._buffer.data[_id] for _id in islice(self._ids, 1, None)]
+        # clear buffer
+        self._buffer.clear()
+        # initialize ids
+        self._ids = deque(maxlen=self._n_step)
+        for data in datas:
+            _id = self._buffer.add_data(data)
+            self._ids.append(_id)
