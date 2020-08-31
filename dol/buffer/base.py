@@ -191,7 +191,6 @@ class ReplayBuffer(ABC):
             List (int): list of item_ids
         """
         if size > len(self) or size < self._minimum_sample_size:
-            print(len(self))
             return
         ids = self._sample_item_ids(size)
         sample = self._create_sample(ids)

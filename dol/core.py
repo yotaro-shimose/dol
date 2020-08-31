@@ -33,8 +33,6 @@ class Actor(ABC):
         raise NotImplementedError
 
     def run(self, num_episode=100):
-        # reset env
-        envstep = self.env.reset()
 
         for episode in range(num_episode):
             reward = 0
@@ -56,7 +54,6 @@ class Learner(ABC):
     def run(self):
         while True:
             self.learn()
-        return "hoge"
 
     @abstractmethod
     def learn(self):

@@ -23,7 +23,7 @@ class ApeXBuilder(Builder):
         epsilon_base=0.5,
         epsilon_alpha=7,
         batch_size=512,
-        learning_rate: float = 0.45,
+        learning_rate: float = 0.37,
         lr_decay: float = 0.95,
         rmsprop_epsilon: float = 1.5e-7,
         clipnorm: float = 40,
@@ -118,7 +118,7 @@ class ApeXActor(Actor):
             observation = add_batch_dimension(envstep.observation)
             Q = squeeze_batch_dimension(self.network(observation))
             action_int = tf.argmax(Q).numpy()
-        return np.eye(self.num_action)[action_int]
+        return np.eye(self.num_action)[action_int].astype(np.int32)
 
     def update(self):
         weights = self.parameter_server.download_weight()
@@ -164,7 +164,7 @@ class ApeXActor(Actor):
         return tf.squeeze((td_error), axis=1)
 
 
-@ ray.remote
+@ray.remote
 class ApeXLearner(Learner):
     def __init__(
         self,
@@ -263,11 +263,12 @@ class ApeXLearner(Learner):
         Q_next = tf.reshape(tf.gather_nd(
             self.network(next_observation), indice), (-1, 1))
         target = reward + Q_next * \
-            tf.cast((1 - tf.cast(done, tf.int32)), tf.float32) * self.discount
-
+            (1.0 - tf.cast(done, tf.float32)) * self.discount
+        action = tf.math.argmax(action, axis=1, output_type=tf.int32)
+        indice = tf.stack([tf_range, action], axis=1)
         with tf.GradientTape() as tape:
-            Q = tf.math.reduce_max(self.network(
-                observation), axis=1, keepdims=True)
+            Q = tf.reshape(tf.gather_nd(
+                self.network(observation), indice), (-1, 1))
             td_error = tf.math.abs(target - Q)
             # calculate loss
             loss = tf.square(td_error) * is_weight
