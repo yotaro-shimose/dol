@@ -82,6 +82,7 @@ class ReplayBuffer(ABC):
         if len(self.items) - 1 < self._item_pointer:
             self.items.append(item)
         else:
+            self._delete_reference(self._item_pointer)
             self.items[self._item_pointer] = item
 
         # update _item_inverse

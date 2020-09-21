@@ -13,21 +13,25 @@ import time
 class ApeXBuilder(Builder):
     def __init__(
         self,
+        # common parameter
         env_builder,
         network_builder,
         n_actor=7,
-        num_advantage=5,
+        num_advantage=3,
         discount=0.99,
+        # actor parameter
         actor_update_freq=40,
         experience_upload_freq=1000,
         epsilon_base=0.5,
         epsilon_alpha=7,
+        # Learner Parameter
         batch_size=512,
         learning_rate: float = 0.37,
         lr_decay: float = 0.95,
         rmsprop_epsilon: float = 1.5e-7,
         clipnorm: float = 40,
         update_freq: int = 10,  # update frequence of target network
+        # Replay Buffer Parameter
         priority_alpha: float = 0.6,
         priority_beta: float = 0.4,
         replay_buffer_size=2e+4
@@ -41,7 +45,9 @@ class ApeXBuilder(Builder):
             gamma=discount,
             minimum_sample_size=batch_size
         )
+
         parameter_server = ParameterServer()
+
         self.learner = ApeXLearner.remote(
             network_builder=network_builder,
             remote_buffer=replay_buffer,
@@ -56,6 +62,7 @@ class ApeXBuilder(Builder):
             priority_alpha=priority_alpha,
             priority_beta=priority_beta
         )
+
         self.actors = []
         for i in range(n_actor):
             print(epsilon_base**(1 + i / (n_actor - 1)))
@@ -143,8 +150,8 @@ class ApeXActor(Actor):
             self.remote_buffer.upload.remote(self.local_buffer)
             self.adder.clear_buffer()
 
-    def on_episode_end(self, step):
-        self.adder.add_final_step(step)
+    def on_episode_end(self, envstep):
+        self.adder.add_final_step(envstep)
 
     def calc_priority(self, observation, action, reward, next_observation, done):
         # calculate TD Error = priority
@@ -155,7 +162,8 @@ class ApeXActor(Actor):
         Q_next = tf.reshape(tf.gather_nd(
             self.network(next_observation), indice), (-1, 1))
         target = reward + Q_next * \
-            tf.cast((1 - tf.cast(done, tf.int32)), tf.float32) * self.discount
+            tf.cast((1 - tf.cast(done, tf.int32)), tf.float32) * \
+            self.discount ** self.num_advantage
 
         Q = tf.math.reduce_max(self.network(
             observation), axis=1, keepdims=True)
@@ -171,6 +179,7 @@ class ApeXLearner(Learner):
         network_builder,
         remote_buffer,
         parameter_server,
+        num_advantage: int = 3,
         batch_size: int = 512,
         learning_rate: float = 2.5e-4,
         lr_decay: float = 0.95,
@@ -182,6 +191,7 @@ class ApeXLearner(Learner):
         priority_beta: float = 0.4
     ):
         # internalize arguments
+        self.num_advantage = num_advantage
         self.buffer = remote_buffer
         self.update_freq = update_freq
         self.step_count = 0
@@ -263,7 +273,8 @@ class ApeXLearner(Learner):
         Q_next = tf.reshape(tf.gather_nd(
             self.network(next_observation), indice), (-1, 1))
         target = reward + Q_next * \
-            (1.0 - tf.cast(done, tf.float32)) * self.discount
+            (1.0 - tf.cast(done, tf.float32)) * \
+            self.discount ** self.num_advantage
         action = tf.math.argmax(action, axis=1, output_type=tf.int32)
         indice = tf.stack([tf_range, action], axis=1)
         with tf.GradientTape() as tape:

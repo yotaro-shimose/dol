@@ -25,7 +25,7 @@ class Actor(ABC):
     def on_step_end(self, step, extra={}):
         pass
 
-    def on_episode_end(self):
+    def on_episode_end(self, envstep):
         pass
 
     @abstractmethod
