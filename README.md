@@ -9,4 +9,4 @@ DOL: Distributed Off-policy Learning
 
 分散学習用のフレームワークとして[Ray](https://docs.ray.io/en/latest/index.html)を利用しています。
 
-カリフォルニア大学産の近年注目を浴びているフレームワークですが原則Linuxでしか
+カリフォルニア大学産の近年注目を浴びているフレームワークですが原則Linuxでしか動作しません。
