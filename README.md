@@ -28,7 +28,8 @@ class NNBuilder:
 class EnvBuilder:
   def __call__(self):
     return gym.Make('CartPole-v0')
-    
+```
+
 最後にこれらを用いて実際に学習をするためApeXBuilderクラスのインスタンスを作成しstart()メソッドを呼び出します。
 
 
